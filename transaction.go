@@ -25,7 +25,7 @@ package modsecurity
 #include "modsecurity/modsecurity.h"
 #include "modsecurity/transaction.h"
 
-Transaction *msc_new_transaction_cgo(ModSecurity *ms, Rules *rules, long logCbData) {
+Transaction *msc_new_transaction_cgo(ModSecurity *ms, RulesSet *rules, long logCbData) {
     return msc_new_transaction(ms, rules, (void*)(intptr_t)logCbData);
 }
 */

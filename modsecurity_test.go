@@ -1,6 +1,7 @@
 package modsecurity
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -21,9 +22,9 @@ func TestWhoAmI(t *testing.T) {
 		t.Errorf("unexpected NewModsecurity() error: %v", err)
 	}
 
-	expectedVersion := "ModSecurity v3.0.3 (Linux)"
+	expectedVersion := "ModSecurity v3."
 	whoAmI := ms.WhoAmI()
-	if whoAmI != expectedVersion {
+	if !strings.HasPrefix(whoAmI, expectedVersion) {
 		t.Errorf("expected %v but %v returned", expectedVersion, whoAmI)
 	}
 }
