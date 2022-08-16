@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/rikatz/go-modsecurity"
+	"github.com/anuraaga/go-modsecurity"
 )
 
 func main() {

@@ -204,6 +204,75 @@ func (txn *transaction) ProcessRequestBody() error {
 	return nil
 }
 
+// With this function it is possible to feed ModSecurity with a response header.
+func (txn *transaction) AddResponseHeader(key, value []byte) error {
+	// Per Modsecurity doc, key and value are NULL ended
+	// Ref: https://github.com/SpiderLabs/ModSecurity/blob/v3.0.4/src/transaction.cc#L2034
+	key = append(key, 0)
+	value = append(value, 0)
+
+	/*cKey := C.CBytes(key)
+	cValue := C.CBytes(value)
+	txn.deferFree(unsafe.Pointer(cKey), unsafe.Pointer(cValue))*/
+
+	if C.msc_add_response_header(txn.msc_txn,
+		(*C.uchar)(unsafe.Pointer(&key[0])),
+		(*C.uchar)(unsafe.Pointer(&value[0]))) != 1 {
+		return errors.New("Could not add response header")
+	}
+	return nil
+}
+
+// This function perform the analysis on the response headers, notice however
+// that the headers should be added prior to the execution of this function.
+//
+// Remember to check for a possible intervention.
+func (txn *transaction) ProcessResponseHeaders(code int, httpVersion string) error {
+	cCode := C.int(code)
+	cHttpVersion := C.CString(httpVersion)
+	if C.msc_process_response_headers(txn.msc_txn,
+		cCode,
+		(*C.char)(unsafe.Pointer(&cHttpVersion))) != 1 {
+		return errors.New("Could not process request headers")
+	}
+	return nil
+}
+
+// Adds response body to be inspected.
+//
+// With this function it is possible to feed ModSecurity with data for
+// inspection regarding the request body.
+func (txn *transaction) AppendResponseBody(bodyBuf []byte) error {
+	body := append(bodyBuf, '\n')
+	/*
+		bodyBufC := C.CBytes(append(bodyBuf, '\n'))
+		txn.deferFree(unsafe.Pointer(bodyBufC))
+	*/
+	if 1 != C.msc_append_response_body(txn.msc_txn,
+		(*C.uchar)(unsafe.Pointer(&body[0])),
+		C.size_t(len(body))) {
+		return errors.New("Could not append Response Body")
+	}
+
+	return nil
+}
+
+// Perform the analysis on the response body (if any)
+// This function perform the analysis on the response body. It is optional to
+// call that function. If this API consumer already know that there isn't a
+// body for inspect it is recommended to skip this step.
+//
+// It is necessary to "append" the response body prior to the execution of this function.
+//
+// Remember to check for a possible intervention.
+func (txn *transaction) ProcessResponseBody() error {
+	if C.msc_process_response_body(txn.msc_txn) != 1 {
+		return errors.New("Could not process Response Body")
+	}
+
+	return nil
+}
+
 // Logging all information relative to this transaction.
 //
 // At this point there is not need to hold the connection,
