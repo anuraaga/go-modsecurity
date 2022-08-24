@@ -34,9 +34,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
-	"net"
 	"regexp"
-	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -75,36 +73,16 @@ var (
 // all the information for a given request.
 //
 // Remember to cleanup the transaction when the transaction is complete using Cleanup()
-func (r *RuleSet) NewTransaction(remoteAddr, localAddr string) (*transaction, error) {
-	remoteIp, remotePort, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return nil, fmt.Errorf("Could not parse remote address: %s", err)
-	}
-
-	remotePortInt, err := strconv.Atoi(remotePort)
-	if err != nil {
-		return nil, fmt.Errorf("Could not convert remote port '%s' to int: %s", remotePort, err.Error())
-	}
-
-	localIp, localPort, err := net.SplitHostPort(localAddr)
-	if err != nil {
-		return nil, fmt.Errorf("Could not parse remote address: %s", err)
-	}
-
-	localPortInt, err := strconv.Atoi(localPort)
-	if err != nil {
-		return nil, fmt.Errorf("Could not convert local port '%s' to int: %s", localPort, err.Error())
-	}
-
+func (r *RuleSet) NewTransaction(remoteHost string, remotePort int, localHost string, localPort int) (*transaction, error) {
 	msc_txn := C.msc_new_transaction_cgo(r.modsec.modsec, r.msc_rules, C.long(r.modsec.logCallbackId))
 	if msc_txn == nil {
 		return nil, fmt.Errorf("Could not initialize transaction")
 	}
 
-	cRemoteIp := C.CString(remoteIp)
-	cLocalIp := C.CString(localIp)
+	cRemoteIp := C.CString(remoteHost)
+	cLocalIp := C.CString(localHost)
 
-	if C.msc_process_connection(msc_txn, cRemoteIp, C.int(remotePortInt), cLocalIp, C.int(localPortInt)) != 1 {
+	if C.msc_process_connection(msc_txn, cRemoteIp, C.int(remotePort), cLocalIp, C.int(localPort)) != 1 {
 		C.free(unsafe.Pointer(cRemoteIp))
 		C.free(unsafe.Pointer(cLocalIp))
 		return nil, errors.New("could not process connection")
@@ -127,7 +105,8 @@ func (txn *transaction) ProcessUri(uri, method, httpVersion string) error {
 	cUri := C.CString(uri)
 	cMethod := C.CString(method)
 	cHttpVersion := C.CString(httpVersion)
-	txn.deferFree(unsafe.Pointer(cUri),
+	txn.deferFree(
+		unsafe.Pointer(cUri),
 		unsafe.Pointer(cMethod),
 		unsafe.Pointer(cHttpVersion),
 	)
@@ -139,19 +118,14 @@ func (txn *transaction) ProcessUri(uri, method, httpVersion string) error {
 }
 
 // With this function it is possible to feed ModSecurity with a request header.
-func (txn *transaction) AddRequestHeader(key, value []byte) error {
-	// Per Modsecurity doc, key and value are NULL ended
-	// Ref: https://github.com/SpiderLabs/ModSecurity/blob/v3.0.4/src/transaction.cc#L2034
-	key = append(key, 0)
-	value = append(value, 0)
-
-	/*cKey := C.CBytes(key)
-	cValue := C.CBytes(value)
-	txn.deferFree(unsafe.Pointer(cKey), unsafe.Pointer(cValue))*/
+func (txn *transaction) AddRequestHeader(key, value string) error {
+	cKey := C.CString(key)
+	cValue := C.CString(value)
+	txn.deferFree(unsafe.Pointer(cKey), unsafe.Pointer(cValue))
 
 	if C.msc_add_request_header(txn.msc_txn,
-		(*C.uchar)(unsafe.Pointer(&key[0])),
-		(*C.uchar)(unsafe.Pointer(&value[0]))) != 1 {
+		(*C.uchar)(unsafe.Pointer(cKey)),
+		(*C.uchar)(unsafe.Pointer(cValue))) != 1 {
 		return errors.New("Could not add request header")
 	}
 	return nil
@@ -162,7 +136,6 @@ func (txn *transaction) AddRequestHeader(key, value []byte) error {
 //
 // Remember to check for a possible intervention.
 func (txn *transaction) ProcessRequestHeaders() error {
-
 	if C.msc_process_request_headers(txn.msc_txn) != 1 {
 		return errors.New("Could not process request headers")
 	}
@@ -173,12 +146,7 @@ func (txn *transaction) ProcessRequestHeaders() error {
 //
 // With this function it is possible to feed ModSecurity with data for
 // inspection regarding the request body.
-func (txn *transaction) AppendRequestBody(bodyBuf []byte) error {
-	body := append(bodyBuf, '\n')
-	/*
-		bodyBufC := C.CBytes(append(bodyBuf, '\n'))
-		txn.deferFree(unsafe.Pointer(bodyBufC))
-	*/
+func (txn *transaction) AppendRequestBody(body []byte) error {
 	if 1 != C.msc_append_request_body(txn.msc_txn,
 		(*C.uchar)(unsafe.Pointer(&body[0])),
 		C.size_t(len(body))) {
@@ -205,19 +173,15 @@ func (txn *transaction) ProcessRequestBody() error {
 }
 
 // With this function it is possible to feed ModSecurity with a response header.
-func (txn *transaction) AddResponseHeader(key, value []byte) error {
-	// Per Modsecurity doc, key and value are NULL ended
-	// Ref: https://github.com/SpiderLabs/ModSecurity/blob/v3.0.4/src/transaction.cc#L2034
-	key = append(key, 0)
-	value = append(value, 0)
+func (txn *transaction) AddResponseHeader(key, value string) error {
+	cKey := C.CString(key)
+	cValue := C.CString(value)
+	txn.deferFree(unsafe.Pointer(cKey), unsafe.Pointer(cValue))
 
-	/*cKey := C.CBytes(key)
-	cValue := C.CBytes(value)
-	txn.deferFree(unsafe.Pointer(cKey), unsafe.Pointer(cValue))*/
-
-	if C.msc_add_response_header(txn.msc_txn,
-		(*C.uchar)(unsafe.Pointer(&key[0])),
-		(*C.uchar)(unsafe.Pointer(&value[0]))) != 1 {
+	if C.msc_add_response_header(
+		txn.msc_txn,
+		(*C.uchar)(unsafe.Pointer(cKey)),
+		(*C.uchar)(unsafe.Pointer(cValue))) != 1 {
 		return errors.New("Could not add response header")
 	}
 	return nil
@@ -242,12 +206,7 @@ func (txn *transaction) ProcessResponseHeaders(code int, httpVersion string) err
 //
 // With this function it is possible to feed ModSecurity with data for
 // inspection regarding the request body.
-func (txn *transaction) AppendResponseBody(bodyBuf []byte) error {
-	body := append(bodyBuf, '\n')
-	/*
-		bodyBufC := C.CBytes(append(bodyBuf, '\n'))
-		txn.deferFree(unsafe.Pointer(bodyBufC))
-	*/
+func (txn *transaction) AppendResponseBody(body []byte) error {
 	if 1 != C.msc_append_response_body(txn.msc_txn,
 		(*C.uchar)(unsafe.Pointer(&body[0])),
 		C.size_t(len(body))) {
